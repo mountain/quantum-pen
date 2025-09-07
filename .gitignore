@@ -211,3 +211,7 @@ __marimo__/
 .vscode-test/
 
 starter.md
+story_progress/
+
+.DS_Store
+thumbs.db

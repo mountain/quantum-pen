@@ -23,7 +23,7 @@ SITE_NAME = "Quantum Pen Project"
 # Note: Provided model names were futuristic. Replaced with current top-tier available models.
 # You can update these when new models are released.
 DIRECTOR_MODEL = "openai/gpt-4o"  # Was openai/gpt-5
-WRITER_MODEL = "anthropic/claude-3-opus"  # Was anthropic/gemini-pro-2.5
+WRITER_MODEL = "google/gemini-2.5-pro"
 EVALUATOR_MODEL = "google/gemini-pro-1.5"
 
 # System Parameters
@@ -42,13 +42,14 @@ r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 # File Storage
 OUTPUT_DIR = "story_progress"
-STARTER_FILE = "starter.md.example"  # <-- **[MODIFIED]** Initial story file
+STARTER_FILE = "starter.md"  # <-- **[MODIFIED]** Initial story file
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # --- 2. CORE PROMPTS ---
 # =======================
 
-# (Prompts remain unchanged, they are excellent as they are)
+# [FIXED] Doubled the curly braces in JSON examples to escape them for the .format() method.
+
 DIRECTOR_PROMPT_TEMPLATE = """
 You are an expert literary director. Your task is to generate THREE distinct and creative briefs for the next chapter of a story, based on the author's intent and the story so far.
 
@@ -63,19 +64,34 @@ The briefs must be genuinely different to maximize creative exploration.
 ---
 
 Generate a JSON object containing a list of exactly three briefs. The JSON schema should be:
-{
+{{
   "briefs": [
-    {
+    {{
       "brief_id": "brief_1",
       "goal": "Primary objective for this chapter.",
       "pacing_and_atmosphere": "Describe the desired pacing (e.g., slow, tense, fast-paced) and atmosphere (e.g., melancholic, mysterious).",
       "key_plot_points": ["A list of 2-3 essential events or reveals that must happen."],
       "character_focus": "Which character's perspective or development is central?",
       "creative_constraints": "Any specific stylistic notes or things to avoid."
-    },
-    // ... two more briefs ...
+    }},
+    {{
+      "brief_id": "brief_2",
+      "goal": "...",
+      "pacing_and_atmosphere": "...",
+      "key_plot_points": ["..."],
+      "character_focus": "...",
+      "creative_constraints": "..."
+    }},
+    {{
+      "brief_id": "brief_3",
+      "goal": "...",
+      "pacing_and_atmosphere": "...",
+      "key_plot_points": ["..."],
+      "character_focus": "...",
+      "creative_constraints": "..."
+    }}
   ]
-}
+}}
 """
 
 WRITER_PROMPT_TEMPLATE = """
@@ -92,9 +108,9 @@ You are a talented novelist. Your task is to write the next chapter of a story, 
 ---
 
 Generate a JSON object containing the chapter text. The JSON schema should be:
-{
+{{
   "chapter_text": "The full text of the new chapter..."
-}
+}}
 """
 
 EVALUATOR_PROMPT_TEMPLATE = """
@@ -118,16 +134,17 @@ You are a sharp and insightful literary critic. Your task is to evaluate a candi
 ---
 
 Generate a JSON object containing your evaluation. The JSON schema should be:
-{
+{{
   "evaluations": [
-    {"dimension": "PlotAdvancement", "score": <int>, "justification": "<string>"},
-    {"dimension": "CharacterDevelopment", "score": <int>, "justification": "<string>"},
-    {"dimension": "TensionAndPacing", "score": <int>, "justification": "<string>"},
-    {"dimension": "ProseAndStyle", "score": <int>, "justification": "<string>"},
-    {"dimension": "Coherence", "score": <int>, "justification": "<string>"}
+    {{"dimension": "PlotAdvancement", "score": <int>, "justification": "<string>"}},
+    {{"dimension": "CharacterDevelopment", "score": <int>, "justification": "<string>"}},
+    {{"dimension": "TensionAndPacing", "score": <int>, "justification": "<string>"}},
+    {{"dimension": "ProseAndStyle", "score": <int>, "justification": "<string>"}},
+    {{"dimension": "Coherence", "score": <int>, "justification": "<string>"}}
   ]
-}
+}}
 """
+
 
 # --- 3. API & HELPER FUNCTIONS ---
 # =================================
