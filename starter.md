@@ -1,0 +1,3 @@
+# The Chronos Key
+
+The antique shop smelled of dust and forgotten time, a scent Elias knew better than his own name. He was an appraiser of histories, a man who could read the soul of an object from the scratches on its surface. But the device that lay on the velvet cloth before him was silent. It was a pocket watch crafted from a metal that shimmered like captured starlight, its face a complex astrolabe of unknown constellations. It had no hands to tell the time, only a single, keyhole-shaped aperture at its center.

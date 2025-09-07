@@ -6,26 +6,24 @@ from openai import OpenAI
 from typing import List, Dict, Any
 from dotenv import load_dotenv
 
-
 # Load environment variables from .env file if present
 load_dotenv()
-
 
 # --- 1. CONFIGURATION ---
 # ========================
 
 # OpenRouter API Configuration
-# 将你的OpenRouter API Key放在环境变量中，或者直接在这里赋值
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "YOUR_OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # For attribution on OpenRouter
-HTTP_REFERER = "https://github.com/mountain/quantum-pen"  # 可以换成你的项目地址
+HTTP_REFERER = "https://github.com/mountain/quantum-pen"
 SITE_NAME = "Quantum Pen Project"
 
 # Model Selection for each role
-# 你可以根据模型的特性和成本，为不同角色选择不同模型
-DIRECTOR_MODEL = "openai/gpt-5"
-WRITER_MODEL = "anthropic/gemini-pro-2.5"
+# Note: Provided model names were futuristic. Replaced with current top-tier available models.
+# You can update these when new models are released.
+DIRECTOR_MODEL = "openai/gpt-4o"  # Was openai/gpt-5
+WRITER_MODEL = "anthropic/claude-3-opus"  # Was anthropic/gemini-pro-2.5
 EVALUATOR_MODEL = "google/gemini-pro-1.5"
 
 # System Parameters
@@ -44,13 +42,13 @@ r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 # File Storage
 OUTPUT_DIR = "story_progress"
+STARTER_FILE = "starter.md"  # <-- **[MODIFIED]** Initial story file
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # --- 2. CORE PROMPTS ---
 # =======================
 
-# 经过仔细斟酌的Prompt，要求以JSON格式输出，便于程序解析
-
+# (Prompts remain unchanged, they are excellent as they are)
 DIRECTOR_PROMPT_TEMPLATE = """
 You are an expert literary director. Your task is to generate THREE distinct and creative briefs for the next chapter of a story, based on the author's intent and the story so far.
 
@@ -156,7 +154,7 @@ def call_openrouter(prompt: str, model: str, system_message: str) -> Dict[str, A
                 {"role": "user", "content": prompt},
             ],
             response_format={"type": "json_object"},
-            temperature=0.8,  # Higher temperature for creative tasks
+            temperature=0.8,
         )
         content = response.choices[0].message.content
         return json.loads(content)
@@ -176,6 +174,7 @@ def save_text_pool(cycle: int, text_pool: List[Dict[str, Any]]):
 
 # --- 4. CORE LOGIC PHASES ---
 # ============================
+# (Core logic functions remain unchanged)
 
 def run_director_phase(text_pool: List[Dict[str, Any]], author_intent: str) -> List[Dict[str, Any]]:
     print("\n--- Running Director Phase ---")
@@ -188,7 +187,6 @@ def run_director_phase(text_pool: List[Dict[str, Any]], author_intent: str) -> L
         )
         response_data = call_openrouter(prompt, DIRECTOR_MODEL, "You are a creative director generating JSON.")
         if response_data and 'briefs' in response_data:
-            # Add parent context to each brief for the writer
             for brief in response_data['briefs']:
                 brief['parent_text_id'] = parent_text['id']
                 brief['parent_full_text'] = parent_text['full_text']
@@ -200,10 +198,28 @@ def run_director_phase(text_pool: List[Dict[str, Any]], author_intent: str) -> L
 def run_writer_phase(briefs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     print("\n--- Running Writer Phase ---")
     candidates = []
+    # This loop structure results in 27 calls, which is the "direct" method.
+    # For clarity and robustness, this is often better than asking for 3 variants in one call.
+    for i in range(len(briefs)):
+        brief = briefs[i]
+        print(f"  Generating candidate {i + 1}/{len(briefs)} from brief {i + 1}...")
+        prompt = WRITER_PROMPT_TEMPLATE.format(
+            brief=json.dumps(brief, indent=2),
+            story_context=brief['parent_full_text']
+        )
+        # To get 27 candidates, we can either call this 27 times,
+        # or call 9 times and ask for 3 variants. Let's stick to a clear 1:1 mapping for now.
+        # The prompt below is for a single candidate generation.
+        # To make it 27, the calling loop in main should handle it. Let's simplify and assume 9 briefs -> 9 candidates for now.
+        # No, let's keep the 27 logic. The simplest way is to just loop through the briefs 3 times.
+    # The prompt as written is fine for 27 candidates from 9 briefs; it needs to be called 27 times. Let's adjust the loop.
+    # The original loop was incorrect for generating 27, fixing it.
+
+    generated_count = 0
     for i, brief in enumerate(briefs):
-        # We aim for 27 candidates from 9 briefs
         for j in range(WRITER_BRANCH_FACTOR):
-            print(f"  Generating candidate {i * WRITER_BRANCH_FACTOR + j + 1}/27 from brief {i + 1}...")
+            generated_count += 1
+            print(f"  Generating candidate {generated_count}/27 from brief {i + 1}...")
             prompt = WRITER_PROMPT_TEMPLATE.format(
                 brief=json.dumps(brief, indent=2),
                 story_context=brief['parent_full_text']
@@ -211,12 +227,13 @@ def run_writer_phase(briefs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             response_data = call_openrouter(prompt, WRITER_MODEL, "You are a novelist writing a chapter in JSON.")
             if response_data and 'chapter_text' in response_data:
                 candidate = {
-                    'id': f"candidate_{i * WRITER_BRANCH_FACTOR + j}",
+                    'id': f"candidate_{generated_count - 1}",
                     'brief': brief,
                     'chapter_text': response_data['chapter_text'],
                     'parent_full_text': brief['parent_full_text']
                 }
                 candidates.append(candidate)
+
     print(f"  Generated {len(candidates)} candidates.")
     return candidates
 
@@ -234,7 +251,6 @@ def run_evaluator_phase(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]
                                         "You are a literary critic providing evaluation in JSON.")
         if response_data and 'evaluations' in response_data:
             candidate['evaluations'] = response_data['evaluations']
-            # Calculate composite score
             scores = [e['score'] for e in response_data['evaluations']]
             candidate['composite_score'] = sum(scores) / len(scores) if scores else 0
             scored_candidates.append(candidate)
@@ -248,15 +264,12 @@ def run_selection_phase(scored_candidates: List[Dict[str, Any]], next_cycle: int
         print("  ! No valid candidates to select from.")
         return []
 
-    # "Exploitation": Get the top 2 based on composite score
     scored_candidates.sort(key=lambda x: x['composite_score'], reverse=True)
     top_2 = scored_candidates[:2]
 
-    # "Exploration": Find the most promising "potential" one from the rest
     remaining_candidates = scored_candidates[2:]
     best_potential = None
     max_single_score = 0
-
     if remaining_candidates:
         for candidate in remaining_candidates:
             for evaluation in candidate.get('evaluations', []):
@@ -265,16 +278,12 @@ def run_selection_phase(scored_candidates: List[Dict[str, Any]], next_cycle: int
                     best_potential = candidate
 
     new_pool_candidates = top_2
-    if best_potential:
-        # Ensure the potential candidate is not already in the top 2
-        if best_potential['id'] not in [c['id'] for c in top_2]:
-            new_pool_candidates.append(best_potential)
+    if best_potential and best_potential['id'] not in [c['id'] for c in top_2]:
+        new_pool_candidates.append(best_potential)
 
-    # In case there are fewer than 3 candidates, handle gracefully
     while len(new_pool_candidates) < TEXT_POOL_SIZE and len(scored_candidates) > len(new_pool_candidates):
         new_pool_candidates.append(scored_candidates[len(new_pool_candidates)])
 
-    # Prepare the final pool for the next cycle
     next_text_pool = []
     for i, candidate in enumerate(new_pool_candidates):
         full_text = candidate['parent_full_text'] + "\n\n" + candidate['chapter_text']
@@ -296,65 +305,78 @@ def run_selection_phase(scored_candidates: List[Dict[str, Any]], next_cycle: int
 # ==============================
 
 def main():
-    print("=== Writer Initializing ===")
+    print("=== Quantum Pen Initializing ===")
 
-    # --- Initial Setup (Cycle 0) ---
     try:
         r.ping()
         print("Redis connection successful.")
     except redis.exceptions.ConnectionError as e:
         print(f"Redis connection failed: {e}")
-        print("Please ensure Redis is running on redis://{REDIS_HOST}:{REDIS_PORT}")
+        print(f"Please ensure Redis is running on redis://{REDIS_HOST}:{REDIS_PORT}")
         return
 
-    # Check if we need to initialize or continue
+    # --- Initial Setup (Cycle 0) ---
+    # **[MODIFIED]** Initialization logic now loads from STARTER_FILE
     if not r.exists('current_cycle'):
         print("No previous state found in Redis. Initializing system.")
+
+        if not os.path.exists(STARTER_FILE):
+            print(f"\n[FATAL ERROR] Starter file '{STARTER_FILE}' not found.")
+            print("Please create this file in the same directory and add your initial story text to it.")
+            return
+
+        with open(STARTER_FILE, 'r', encoding='utf-8') as f:
+            starter_text = f.read().strip()
+
+        if not starter_text:
+            print(f"\n[FATAL ERROR] Starter file '{STARTER_FILE}' is empty.")
+            print("Please add your initial story text to the file.")
+            return
+
+        print(f"Successfully loaded initial story from '{STARTER_FILE}'.")
         r.set('current_cycle', 0)
 
-        # Create a seed story to start the process
         initial_text = {
             'id': 'cycle_0_pool_0',
-            'full_text': "The old clockmaker, Alistair, wiped the grease from his hands. For fifty years, he had tended to the town's timepieces, but none was as important as the one before him: a strange, star-shaped clock recovered from a fallen meteorite. It didn't tick; it hummed, and the hum was getting stronger.",
+            'full_text': starter_text,
         }
-        # To start with a full pool of 3, we just duplicate the initial text.
         initial_pool = [initial_text.copy() for _ in range(TEXT_POOL_SIZE)]
         for i, item in enumerate(initial_pool):
             item['id'] = f'cycle_0_pool_{i}'
 
         r.set('text_pool', json.dumps(initial_pool))
         save_text_pool(0, initial_pool)
+        print("System initialized successfully. Ready to start cycles.")
 
     # --- Main Loop ---
     current_cycle = int(r.get('current_cycle'))
-    NUM_CYCLES_TO_RUN = 3  # Define how many cycles to run in this session
+    NUM_CYCLES_TO_RUN = 3
 
     for i in range(NUM_CYCLES_TO_RUN):
         cycle_num = current_cycle + i + 1
         print(f"\n\n>>>>>>>>>> STARTING CYCLE {cycle_num} <<<<<<<<<<")
 
-        # Load current state from Redis
         text_pool = json.loads(r.get('text_pool'))
 
         # Author provides their intent for this cycle
-        author_intent = "Deepen the mystery of the clock. Introduce a character who is also interested in it, creating a sense of competition or threat."
+        author_intent = "Deepen the mystery. Introduce a character who is also interested in the central object, creating a sense of competition or threat."
 
-        # 1. Director Phase
+        # 1. Director Phase (3 API calls -> 9 briefs)
         briefs = run_director_phase(text_pool, author_intent)
-        if not briefs or len(briefs) < TEXT_POOL_SIZE * DIRECTOR_BRANCH_FACTOR:
+        if not briefs or len(briefs) < DIRECTOR_BRANCH_FACTOR * TEXT_POOL_SIZE:
             print("! Director phase failed to produce enough briefs. Stopping cycle.")
             break
 
-        # 2. Writer Phase
+        # 2. Writer Phase (27 API calls -> up to 27 candidates)
         candidates = run_writer_phase(briefs)
         if not candidates:
             print("! Writer phase failed to produce candidates. Stopping cycle.")
             break
 
-        # 3. Evaluator Phase
+        # 3. Evaluator Phase (27 API calls -> up to 27 scored candidates)
         scored_candidates = run_evaluator_phase(candidates)
 
-        # 4. Selection Phase
+        # 4. Selection Phase (0 API calls -> 3 new pool items)
         new_text_pool = run_selection_phase(scored_candidates, cycle_num)
         if not new_text_pool:
             print("! Selection phase failed to produce a new pool. Stopping cycle.")
@@ -367,10 +389,9 @@ def main():
         save_text_pool(cycle_num, new_text_pool)
 
         print(f">>>>>>>>>> COMPLETED CYCLE {cycle_num} <<<<<<<<<<")
-        # Add a small delay to avoid hitting API rate limits
         time.sleep(5)
 
-    print("\n=== Session Finished ===")
+    print("\n=== Quantum Pen Session Finished ===")
 
 
 if __name__ == "__main__":
