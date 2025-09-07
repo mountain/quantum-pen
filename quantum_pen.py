@@ -22,7 +22,7 @@ SITE_NAME = "Quantum Pen Project"
 # Model Selection for each role
 # Note: Provided model names were futuristic. Replaced with current top-tier available models.
 # You can update these when new models are released.
-DIRECTOR_MODEL = "openai/gpt-4o"  # Was openai/gpt-5
+DIRECTOR_MODEL = "openai/gpt-4o"
 WRITER_MODEL = "google/gemini-2.5-pro"
 EVALUATOR_MODEL = "google/gemini-pro-1.5"
 
@@ -42,7 +42,8 @@ r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 # File Storage
 OUTPUT_DIR = "story_progress"
-STARTER_FILE = "starter.md"  # <-- **[MODIFIED]** Initial story file
+STARTER_FILE = "starter.md"  # Initial story file
+INTENT_FILE = "intention.md"    # Author's intent file
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # --- 2. CORE PROMPTS ---
@@ -376,7 +377,16 @@ def main():
         text_pool = json.loads(r.get('text_pool'))
 
         # Author provides their intent for this cycle
-        author_intent = "Deepen the mystery. Introduce a character who is also interested in the central object, creating a sense of competition or threat."
+        if os.path.exists(INTENT_FILE):
+            with open(INTENT_FILE, 'r', encoding='utf-8') as f:
+                author_intent = f.read().strip()
+            if not author_intent:
+                print(f"\n[WARNING] Intent file '{INTENT_FILE}' is empty. Using default intent.")
+                author_intent = "Deepen the mystery. Introduce a character who is also interested in the central object, creating a sense of competition or threat."
+            else:
+                print(f"Loaded author's intent from '{INTENT_FILE}'.")
+        else:
+            author_intent = "Deepen the mystery. Introduce a character who is also interested in the central object, creating a sense of competition or threat."
 
         # 1. Director Phase (3 API calls -> 9 briefs)
         briefs = run_director_phase(text_pool, author_intent)
