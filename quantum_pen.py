@@ -1,7 +1,6 @@
 import os
 import json
 import redis
-import time
 from openai import OpenAI
 from typing import List, Dict, Any
 from dotenv import load_dotenv
@@ -182,13 +181,12 @@ def call_openrouter(prompt: str, model: str, system_message: str) -> Dict[str, A
 
 
 def save_text_pool(cycle: int, text_pool: List[Dict[str, Any]]):
-    """Saves the current text pool to local files."""
+    """Saves the current text pool to local markdown files."""
     for i, item in enumerate(text_pool):
         filename = os.path.join(OUTPUT_DIR, f"cycle_{cycle:02d}_pool_{i}.md")
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(item['full_text'])
         print(f"  > Saved text pool item {i} to {filename}")
-
 
 # --- 4. CORE LOGIC PHASES ---
 # ============================
@@ -334,7 +332,6 @@ def main():
         return
 
     # --- Initial Setup (Cycle 0) ---
-    # **[MODIFIED]** Initialization logic now loads from STARTER_FILE
     if not r.exists('current_cycle'):
         print("No previous state found in Redis. Initializing system.")
 
@@ -362,19 +359,42 @@ def main():
         for i, item in enumerate(initial_pool):
             item['id'] = f'cycle_0_pool_{i}'
 
-        r.set('text_pool', json.dumps(initial_pool))
+        # We still save the initial text to Redis for the very first cycle to read from.
+        # Alternatively, the loop could have a special case for cycle 0, but this is simpler.
+        r.set('text_pool_metadata', json.dumps(initial_pool))  # Store metadata, not full text if large
         save_text_pool(0, initial_pool)
         print("System initialized successfully. Ready to start cycles.")
 
     # --- Main Loop ---
-    current_cycle = int(r.get('current_cycle'))
     NUM_CYCLES_TO_RUN = 3
 
     for i in range(NUM_CYCLES_TO_RUN):
-        cycle_num = current_cycle + i + 1
+        # Determine the current and next cycle numbers
+        last_completed_cycle = int(r.get('current_cycle'))
+        cycle_num = last_completed_cycle + 1
+
         print(f"\n\n>>>>>>>>>> STARTING CYCLE {cycle_num} <<<<<<<<<<")
 
-        text_pool = json.loads(r.get('text_pool'))
+        # --- [MODIFIED] Load text pool directly from files ---
+        print(f"Loading text pool from files of cycle {last_completed_cycle}...")
+        text_pool = []
+        for pool_index in range(TEXT_POOL_SIZE):
+            filename = os.path.join(OUTPUT_DIR, f"cycle_{last_completed_cycle:02d}_pool_{pool_index}.md")
+            if not os.path.exists(filename):
+                print(f"\n[FATAL ERROR] Cannot find required file for next cycle: {filename}")
+                print("Aborting.")
+                return
+
+            with open(filename, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            pool_item = {
+                'id': f'cycle_{last_completed_cycle}_pool_{pool_index}',
+                'full_text': content
+            }
+            text_pool.append(pool_item)
+        print("Text pool loaded successfully from files.")
+        # --- End of modification ---
 
         # Author provides their intent for this cycle
         if os.path.exists(INTENT_FILE):
@@ -388,38 +408,40 @@ def main():
         else:
             author_intent = "Deepen the mystery. Introduce a character who is also interested in the central object, creating a sense of competition or threat."
 
-        # 1. Director Phase (3 API calls -> 9 briefs)
+        # 1. Director Phase
         briefs = run_director_phase(text_pool, author_intent)
         if not briefs or len(briefs) < DIRECTOR_BRANCH_FACTOR * TEXT_POOL_SIZE:
             print("! Director phase failed to produce enough briefs. Stopping cycle.")
             break
 
-        # 2. Writer Phase (27 API calls -> up to 27 candidates)
+        # 2. Writer Phase
         candidates = run_writer_phase(briefs)
         if not candidates:
             print("! Writer phase failed to produce candidates. Stopping cycle.")
             break
 
-        # 3. Evaluator Phase (27 API calls -> up to 27 scored candidates)
+        # 3. Evaluator Phase
         scored_candidates = run_evaluator_phase(candidates)
 
-        # 4. Selection Phase (0 API calls -> 3 new pool items)
+        # 4. Selection Phase
         new_text_pool = run_selection_phase(scored_candidates, cycle_num)
         if not new_text_pool:
             print("! Selection phase failed to produce a new pool. Stopping cycle.")
             break
 
-        # 5. Update State
+        # 5. Update State and Wait for User
         print("\n--- Updating State for Next Cycle ---")
-        r.set('current_cycle', cycle_num)
-        r.set('text_pool', json.dumps(new_text_pool))
         save_text_pool(cycle_num, new_text_pool)
+        r.set('current_cycle', cycle_num)
 
         print(f">>>>>>>>>> COMPLETED CYCLE {cycle_num} <<<<<<<<<<")
-        time.sleep(5)
+
+        # Add pause for user intervention ---
+        print("\n✅ Cycle complete. New files have been saved to the 'story_progress/' directory.")
+        print("   You can now review, compare, and edit the three new .md files before proceeding.")
+        input("   Press Enter to start the next cycle...")
 
     print("\n=== Quantum Pen Session Finished ===")
-
 
 if __name__ == "__main__":
     main()
