@@ -1,0 +1,10 @@
+[project]
+name = "quantum-pen"
+version = "0.1.0"
+description = "Stories are not written, but discovered."
+requires-python = ">=3.13"
+dependencies = [
+    "openai>=1.106.1",
+    "redis>=6.4.0",
+    "python-dotenv>=1.1.1"
+]
