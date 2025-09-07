@@ -184,7 +184,7 @@ def call_openrouter(prompt: str, model: str, system_message: str) -> Dict[str, A
 def save_text_pool(cycle: int, text_pool: List[Dict[str, Any]]):
     """Saves the current text pool to local files."""
     for i, item in enumerate(text_pool):
-        filename = os.path.join(OUTPUT_DIR, f"cycle_{cycle:02d}_pool_{i}.txt")
+        filename = os.path.join(OUTPUT_DIR, f"cycle_{cycle:02d}_pool_{i}.md")
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(item['full_text'])
         print(f"  > Saved text pool item {i} to {filename}")
