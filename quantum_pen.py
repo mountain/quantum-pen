@@ -24,7 +24,7 @@ SITE_NAME = "Quantum Pen Project"
 # You can update these when new models are released.
 DIRECTOR_MODEL = "openai/gpt-4o"
 WRITER_MODEL = "google/gemini-2.5-pro"
-EVALUATOR_MODEL = "google/gemini-pro-1.5"
+EVALUATOR_MODEL = "google/gemini-2.5-pro"
 
 # System Parameters
 TEXT_POOL_SIZE = 3
