@@ -42,7 +42,7 @@ r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 # File Storage
 OUTPUT_DIR = "story_progress"
-STARTER_FILE = "starter.md"  # <-- **[MODIFIED]** Initial story file
+STARTER_FILE = "starter.md.example"  # <-- **[MODIFIED]** Initial story file
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # --- 2. CORE PROMPTS ---
