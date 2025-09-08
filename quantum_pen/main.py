@@ -195,7 +195,7 @@ def save_text_pool(cycle: int, text_pool: List[Dict[str, Any]]):
 # ============================
 # (Core logic functions remain unchanged)
 
-def run_director_phase(text_pool: List[Dict[str, Any]], author_intent: str) -> List[Dict[str, Any]]:
+def run_director_phase(cycle_num: int, text_pool: List[Dict[str, Any]], author_intent: str) -> List[Dict[str, Any]]:
     print("\n--- Running Director Phase ---")
     all_briefs = []
     for i, parent_text in enumerate(text_pool):
@@ -210,35 +210,50 @@ def run_director_phase(text_pool: List[Dict[str, Any]], author_intent: str) -> L
                 brief['parent_text_id'] = parent_text['id']
                 brief['parent_full_text'] = parent_text['full_text']
             all_briefs.extend(response_data['briefs'])
+
     print(f"  Generated {len(all_briefs)} briefs.")
+    if all_briefs:
+        r.hset(f"cycle:{cycle_num}", "briefs", json.dumps(all_briefs))
+        r.hset(f"cycle:{cycle_num}", "status", "director_complete")
+        print(f"  > Saved {len(all_briefs)} briefs to Redis for cycle {cycle_num}.")
     return all_briefs
 
 
-def run_writer_phase(briefs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def run_writer_phase(cycle_num: int, briefs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     print("\n--- Running Writer Phase ---")
-    candidates = []
-    # This loop structure results in 27 calls, which is the "direct" method.
-    # For clarity and robustness, this is often better than asking for 3 variants in one call.
-    for i in range(len(briefs)):
-        brief = briefs[i]
-        print(f"  Generating candidate {i + 1}/{len(briefs)} from brief {i + 1}...")
-        prompt = WRITER_PROMPT_TEMPLATE.format(
-            brief=json.dumps(brief, indent=2),
-            story_context=brief['parent_full_text']
-        )
-        # To get 27 candidates, we can either call this 27 times,
-        # or call 9 times and ask for 3 variants. Let's stick to a clear 1:1 mapping for now.
-        # The prompt below is for a single candidate generation.
-        # To make it 27, the calling loop in main should handle it. Let's simplify and assume 9 briefs -> 9 candidates for now.
-        # No, let's keep the 27 logic. The simplest way is to just loop through the briefs 3 times.
-    # The prompt as written is fine for 27 candidates from 9 briefs; it needs to be called 27 times. Let's adjust the loop.
-    # The original loop was incorrect for generating 27, fixing it.
+    candidates_key = f"cycle:{cycle_num}:candidates"
 
-    generated_count = 0
-    for i, brief in enumerate(briefs):
+    # Load already generated candidates to resume
+    existing_candidates_json = r.lrange(candidates_key, 0, -1)
+    candidates = [json.loads(c) for c in existing_candidates_json]
+    num_existing = len(candidates)
+
+    total_candidates_to_generate = len(briefs) * WRITER_BRANCH_FACTOR
+
+    if num_existing > 0:
+        print(f"  Found {num_existing} existing candidates. Resuming generation.")
+
+    if num_existing >= total_candidates_to_generate:
+        print("  All candidates already generated.")
+        # Ensure status is set correctly even if we just resume
+        r.hset(f"cycle:{cycle_num}", "status", "writer_complete")
+        return candidates
+
+    # Loop through all potential candidates and skip the ones we already have
+    for i in range(len(briefs)):
         for j in range(WRITER_BRANCH_FACTOR):
-            generated_count += 1
-            print(f"  Generating candidate {generated_count}/27 from brief {i + 1}...")
+            # This is the overall index of the candidate we are about to generate
+            current_candidate_index = i * WRITER_BRANCH_FACTOR + j
+
+            # If we have already generated this candidate, skip.
+            if current_candidate_index < num_existing:
+                continue
+
+            # This is the "live" count for user display
+            live_generated_count = current_candidate_index + 1
+            brief = briefs[i]
+            print(f"  Generating candidate {live_generated_count}/{total_candidates_to_generate} from brief {i + 1}...")
+
             prompt = WRITER_PROMPT_TEMPLATE.format(
                 brief=json.dumps(brief, indent=2),
                 story_context=brief['parent_full_text']
@@ -246,18 +261,23 @@ def run_writer_phase(briefs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             response_data = call_openrouter(prompt, WRITER_MODEL, "You are a novelist writing a chapter in JSON.")
             if response_data and 'chapter_text' in response_data:
                 candidate = {
-                    'id': f"candidate_{generated_count - 1}",
+                    'id': f"candidate_{current_candidate_index}",
                     'brief': brief,
                     'chapter_text': response_data['chapter_text'],
                     'parent_full_text': brief['parent_full_text']
                 }
                 candidates.append(candidate)
+                # Save each candidate to Redis incrementally
+                r.rpush(candidates_key, json.dumps(candidate))
 
-    print(f"  Generated {len(candidates)} candidates.")
+    print(f"  Generated a total of {len(candidates)} candidates.")
+    if len(candidates) >= total_candidates_to_generate:
+        r.hset(f"cycle:{cycle_num}", "status", "writer_complete")
+        print(f"  > All {len(candidates)} candidates saved to Redis for cycle {cycle_num}.")
     return candidates
 
 
-def run_evaluator_phase(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def run_evaluator_phase(cycle_num: int, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     print("\n--- Running Evaluator Phase ---")
     scored_candidates = []
     for i, candidate in enumerate(candidates):
@@ -273,11 +293,16 @@ def run_evaluator_phase(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]
             scores = [e['score'] for e in response_data['evaluations']]
             candidate['composite_score'] = sum(scores) / len(scores) if scores else 0
             scored_candidates.append(candidate)
+
     print(f"  Evaluated {len(scored_candidates)} candidates.")
+    if scored_candidates:
+        r.hset(f"cycle:{cycle_num}", "scored_candidates", json.dumps(scored_candidates))
+        r.hset(f"cycle:{cycle_num}", "status", "evaluator_complete")
+        print(f"  > Saved {len(scored_candidates)} scored candidates to Redis for cycle {cycle_num}.")
     return scored_candidates
 
 
-def run_selection_phase(scored_candidates: List[Dict[str, Any]], next_cycle: int) -> List[Dict[str, Any]]:
+def run_selection_phase(cycle_num: int, scored_candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     print("\n--- Running Selection Phase ---")
     if not scored_candidates:
         print("  ! No valid candidates to select from.")
@@ -307,7 +332,7 @@ def run_selection_phase(scored_candidates: List[Dict[str, Any]], next_cycle: int
     for i, candidate in enumerate(new_pool_candidates):
         full_text = candidate['parent_full_text'] + "\n\n" + candidate['chapter_text']
         next_text_pool.append({
-            'id': f"cycle_{next_cycle}_pool_{i}",
+            'id': f"cycle_{cycle_num}_pool_{i}",
             'full_text': full_text,
             'source_candidate': candidate['id'],
             'composite_score': candidate['composite_score']
@@ -316,6 +341,11 @@ def run_selection_phase(scored_candidates: List[Dict[str, Any]], next_cycle: int
     print(f"  Selected {len(next_text_pool)} candidates for the next text pool.")
     for item in next_text_pool:
         print(f"    - ID: {item['id']}, Score: {item['composite_score']:.2f}")
+
+    if next_text_pool:
+        r.hset(f"cycle:{cycle_num}", "new_text_pool", json.dumps(next_text_pool))
+        r.hset(f"cycle:{cycle_num}", "status", "selection_complete")
+        print(f"  > Saved new text pool to Redis for cycle {cycle_num}.")
 
     return next_text_pool
 
@@ -335,116 +365,131 @@ def main():
         return
 
     # --- Initial Setup ---
-    # We now only ensure 'current_cycle' exists. File setup is in the loop.
     if not r.exists('current_cycle'):
         print("No previous state found in Redis. Initializing system.")
         r.set('current_cycle', 0)
         print("System initialized. Ready to start cycles.")
 
-    # --- Main Loop ---
-    NUM_CYCLES_TO_RUN = 3
+    # Determine the current and next cycle numbers
+    last_completed_cycle = int(r.get('current_cycle'))
+    cycle_num = last_completed_cycle + 1
 
-    for i in range(NUM_CYCLES_TO_RUN):
-        # Determine the current and next cycle numbers
-        last_completed_cycle = int(r.get('current_cycle'))
-        cycle_num = last_completed_cycle + 1
+    print(f"\n\n>>>>>>>>>> STARTING/RESUMING CYCLE {cycle_num} <<<<<<<<<<")
 
-        print(f"\n\n>>>>>>>>>> STARTING CYCLE {cycle_num} <<<<<<<<<<")
+    cycle_key = f"cycle:{cycle_num}"
+    cycle_state = r.hgetall(cycle_key)
+    status = cycle_state.get("status")
 
-        # --- Load all inputs for the cycle ---
-        text_pool = []
-        if last_completed_cycle == 0:
-            # For the very first cycle, we load from the starter file.
-            # This ensures any user edits to starter.md before starting are captured.
-            print(f"Loading initial text from '{STARTER_FILE}' for Cycle 1.")
-            if not os.path.exists(STARTER_FILE):
-                print(f"\n[FATAL ERROR] Starter file '{STARTER_FILE}' not found.")
-                print("Please create this file and add your initial story text to it.")
+    # If cycle hasn't even started, initialize it.
+    if not status:
+        r.hset(cycle_key, "status", "pending")
+        status = "pending"
+        print(f"Initialized new state for cycle {cycle_num} in Redis.")
+
+    print(f"  > Current cycle status: {status}")
+
+    # --- Load static inputs for the cycle (text pool and intent) ---
+    # This logic runs regardless of the state, as it's the input for the whole cycle.
+    text_pool = []
+    if last_completed_cycle == 0:
+        print(f"Loading initial text from '{STARTER_FILE}' for Cycle 1.")
+        if not os.path.exists(STARTER_FILE):
+            print(f"\n[FATAL ERROR] Starter file '{STARTER_FILE}' not found.")
+            return
+        with open(STARTER_FILE, 'r', encoding='utf-8') as f:
+            starter_text = f.read().strip()
+        if not starter_text:
+            print(f"\n[FATAL ERROR] Starter file '{STARTER_FILE}' is empty.")
+            return
+        print("Successfully loaded initial story.")
+        initial_text = {'id': 'cycle_0_pool_0', 'full_text': starter_text}
+        text_pool = [initial_text.copy() for _ in range(TEXT_POOL_SIZE)]
+        for j, item in enumerate(text_pool):
+            item['id'] = f'cycle_0_pool_{j}'
+        save_text_pool(0, text_pool)
+    else:
+        print(f"Loading text pool from files of cycle {last_completed_cycle}...")
+        for pool_index in range(TEXT_POOL_SIZE):
+            filename = os.path.join(OUTPUT_DIR, f"cycle_{last_completed_cycle:02d}_pool_{pool_index}.md")
+            if not os.path.exists(filename):
+                print(f"\n[FATAL ERROR] Cannot find required file for next cycle: {filename}")
                 return
+            with open(filename, 'r', encoding='utf-8') as f:
+                content = f.read()
+            pool_item = {'id': f'cycle_{last_completed_cycle}_pool_{pool_index}', 'full_text': content}
+            text_pool.append(pool_item)
+        print("Text pool loaded successfully from files.")
 
-            with open(STARTER_FILE, 'r', encoding='utf-8') as f:
-                starter_text = f.read().strip()
-
-            if not starter_text:
-                print(f"\n[FATAL ERROR] Starter file '{STARTER_FILE}' is empty.")
-                print("Please add your initial story text to the file.")
-                return
-
-            print("Successfully loaded initial story.")
-            initial_text = {
-                'id': 'cycle_0_pool_0',
-                'full_text': starter_text,
-            }
-            text_pool = [initial_text.copy() for _ in range(TEXT_POOL_SIZE)]
-            for j, item in enumerate(text_pool):
-                item['id'] = f'cycle_0_pool_{j}'
-
-            # Save this initial pool to cycle_00 files for transparency
-            save_text_pool(0, text_pool)
+    if os.path.exists(INTENT_FILE):
+        with open(INTENT_FILE, 'r', encoding='utf-8') as f:
+            author_intent = f.read().strip()
+        if not author_intent:
+            print(f"\n[WARNING] Intent file '{INTENT_FILE}' is empty. Using default intent.")
+            author_intent = "Deepen the mystery."
         else:
-            # For subsequent cycles, load from the previous cycle's output files.
-            print(f"Loading text pool from files of cycle {last_completed_cycle}...")
-            for pool_index in range(TEXT_POOL_SIZE):
-                filename = os.path.join(OUTPUT_DIR, f"cycle_{last_completed_cycle:02d}_pool_{pool_index}.md")
-                if not os.path.exists(filename):
-                    print(f"\n[FATAL ERROR] Cannot find required file for next cycle: {filename}")
-                    print("Aborting.")
-                    return
+            print(f"Loaded author's intent from '{INTENT_FILE}'.")
+    else:
+        author_intent = "Deepen the mystery."
 
-                with open(filename, 'r', encoding='utf-8') as f:
-                    content = f.read()
+    # --- State Machine for Cycle Execution ---
 
-                pool_item = {
-                    'id': f'cycle_{last_completed_cycle}_pool_{pool_index}',
-                    'full_text': content
-                }
-                text_pool.append(pool_item)
-            print("Text pool loaded successfully from files.")
-
-        # Author provides their intent for this cycle
-        if os.path.exists(INTENT_FILE):
-            with open(INTENT_FILE, 'r', encoding='utf-8') as f:
-                author_intent = f.read().strip()
-            if not author_intent:
-                print(f"\n[WARNING] Intent file '{INTENT_FILE}' is empty. Using default intent.")
-                author_intent = "Deepen the mystery. Introduce a character who is also interested in the central object, creating a sense of competition or threat."
-            else:
-                print(f"Loaded author's intent from '{INTENT_FILE}'.")
-        else:
-            author_intent = "Deepen the mystery. Introduce a character who is also interested in the central object, creating a sense of competition or threat."
-
-        # 1. Director Phase
-        briefs = run_director_phase(text_pool, author_intent)
+    # PHASE 1: DIRECTOR
+    if status == "pending":
+        briefs = run_director_phase(cycle_num, text_pool, author_intent)
         if not briefs or len(briefs) < DIRECTOR_BRANCH_FACTOR * TEXT_POOL_SIZE:
-            print("! Director phase failed to produce enough briefs. Stopping cycle.")
-            break
+            print("! Director phase failed. Stopping cycle.")
+            return
+        status = r.hget(cycle_key, "status") # Refresh status
 
-        # 2. Writer Phase
-        candidates = run_writer_phase(briefs)
+    # PHASE 2: WRITER
+    if status == "director_complete":
+        cycle_state = r.hgetall(cycle_key)
+        briefs = json.loads(cycle_state['briefs'])
+        print("  > Loaded briefs from Redis, proceeding to Writer phase.")
+
+        candidates = run_writer_phase(cycle_num, briefs)
         if not candidates:
-            print("! Writer phase failed to produce candidates. Stopping cycle.")
-            break
+            print("! Writer phase failed. Stopping cycle.")
+            return
+        status = r.hget(cycle_key, "status")
 
-        # 3. Evaluator Phase
-        scored_candidates = run_evaluator_phase(candidates)
+    # PHASE 3: EVALUATOR
+    if status == "writer_complete":
+        candidates_key = f"cycle:{cycle_num}:candidates"
+        candidates = [json.loads(c) for c in r.lrange(candidates_key, 0, -1)]
+        print(f"  > Loaded {len(candidates)} candidates from Redis, proceeding to Evaluator phase.")
 
-        # 4. Selection Phase
-        new_text_pool = run_selection_phase(scored_candidates, cycle_num)
+        scored_candidates = run_evaluator_phase(cycle_num, candidates)
+        if not scored_candidates:
+            print("! Evaluator phase failed. Stopping cycle.")
+            return
+        status = r.hget(cycle_key, "status")
+
+    # PHASE 4: SELECTION
+    if status == "evaluator_complete":
+        cycle_state = r.hgetall(cycle_key)
+        scored_candidates = json.loads(cycle_state['scored_candidates'])
+        print(f"  > Loaded {len(scored_candidates)} scored candidates from Redis, proceeding to Selection phase.")
+
+        new_text_pool = run_selection_phase(cycle_num, scored_candidates)
         if not new_text_pool:
-            print("! Selection phase failed to produce a new pool. Stopping cycle.")
-            break
+            print("! Selection phase failed. Stopping cycle.")
+            return
+        status = r.hget(cycle_key, "status")
 
-        # 5. Update State and Wait for User
-        print("\n--- Updating State for Next Cycle ---")
+    # PHASE 5: FINALIZE
+    if status == "selection_complete":
+        cycle_state = r.hgetall(cycle_key)
+        new_text_pool = json.loads(cycle_state['new_text_pool'])
+
+        print("\n--- Finalizing Cycle ---")
         save_text_pool(cycle_num, new_text_pool)
         r.set('current_cycle', cycle_num)
+        r.hset(cycle_key, "status", "completed")
 
-        print(f">>>>>>>>>> COMPLETED CYCLE {cycle_num} <<<<<<<<<<")
-
-        # Add pause for user intervention ---
+        print(f"\n>>>>>>>>>> COMPLETED CYCLE {cycle_num} <<<<<<<<<<")
         print("\n✅ Cycle complete. New files have been saved to the 'story_progress/' directory.")
-        print("   You can now review, compare, and edit the three new .md files before proceeding.")
-        input("   Press Enter to start the next cycle...")
+        print("   Run the tool again to start the next cycle.")
 
     print("\n=== Quantum Pen Session Finished ===")
 
