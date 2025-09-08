@@ -353,8 +353,42 @@ def run_selection_phase(cycle_num: int, scored_candidates: List[Dict[str, Any]])
 # --- 5. MAIN EXECUTION LOOP ---
 # ==============================
 
+def interactive_setup():
+    """
+    Creates starter and intention files from examples if they don't exist.
+    """
+    starter_example = """# The Chronos Key
+
+The antique shop smelled of dust and forgotten time, a scent Elias knew better than his own name. He was an appraiser of histories, a man who could read the soul of an object from the scratches on its surface. But the device that lay on the velvet cloth before him was silent. It was a pocket watch crafted from a metal that shimmered like captured starlight, its face a complex astrolabe of unknown constellations. It had no hands to tell the time, only a single, keyhole-shaped aperture at its center."""
+
+    intention_example = "Deepen the mystery. Introduce a character who is also interested in the central object, creating a sense of competition or threat."
+
+    print("--- Welcome to Quantum Pen! ---")
+    print("It looks like this is your first time running in this folder.")
+    print("I'm creating starter files for you from the examples.\n")
+
+    with open(STARTER_FILE, 'w', encoding='utf-8') as f:
+        f.write(starter_example)
+    print(f"✅ Created '{STARTER_FILE}'. You can edit this file to change the beginning of your story.")
+
+    with open(INTENT_FILE, 'w', encoding='utf-8') as f:
+        f.write(intention_example)
+    print(f"✅ Created '{INTENT_FILE}'. You can edit this file to change the initial creative goal.")
+
+    print("\n--- Setup Complete! ---")
+    print("\n[IMPORTANT] Next, you need to provide your API key.")
+    print("1. Create a file named '.env' in this folder.")
+    print("2. Inside '.env', add this line: OPENROUTER_API_KEY=\"sk-or-your-key-here\"")
+    print("\nOnce your .env file is ready, and you've reviewed the starter files, run 'qp' again.")
+
+
 def main():
     print("=== Quantum Pen Initializing ===")
+
+    # --- Initial Setup: Check for starter files ---
+    if not os.path.exists(STARTER_FILE):
+        interactive_setup()
+        return
 
     try:
         r.ping()
@@ -364,7 +398,7 @@ def main():
         print(f"Please ensure Redis is running on redis://{REDIS_HOST}:{REDIS_PORT}")
         return
 
-    # --- Initial Setup ---
+    # --- Redis State Initialization ---
     if not r.exists('current_cycle'):
         print("No previous state found in Redis. Initializing system.")
         r.set('current_cycle', 0)
