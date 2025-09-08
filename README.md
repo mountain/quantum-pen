@@ -40,29 +40,45 @@ The system operates in iterative "cycles." Here’s a breakdown of a single cycl
 
 ## Getting Started
 
+Follow these steps to begin your first co-creation session.
+
 ### 1\. Prerequisites
 
-  * Python 3.8+
-  * Redis (a local instance is sufficient)
-  * Git
+*   Python 3.12+
+*   A running Redis instance (e.g., `redis-server` on your local machine).
 
-### 2\. Installation & Setup
+### 2\. Create Your Writing Project
+
+First, create a dedicated folder for your story. This will keep your narrative files organized and separate from the tool's installation.
+
+```bash
+mkdir my-awesome-story
+cd my-awesome-story
+```
+
+### 3\. Install Quantum Pen
+
+Install the engine using pip. It's recommended to use a virtual environment for your project.
 
 ```bash
 pip install quantum-pen
 ```
 
-### 3\. Required Files
+### 4\. Initialize Your Story
 
-Before running the script, create the following files in the project's root directory:
+Inside your project folder (`my-awesome-story`), create three essential files:
 
-**`.env`** (for your API key)
+**1\. `.env`**
+
+This file holds your API key. `Quantum Pen` uses OpenRouter to access various language models.
 
 ```
 OPENROUTER_API_KEY="sk-or-your-key-here"
 ```
 
-**`starter.md`** (your story's opening paragraph)
+**2\. `starter.md`**
+
+This is the seed of your story—the opening paragraph or chapter.
 
 ```markdown
 # The Chronos Key
@@ -70,34 +86,37 @@ OPENROUTER_API_KEY="sk-or-your-key-here"
 The antique shop smelled of dust and forgotten time, a scent Elias knew better than his own name. He was an appraiser of histories, a man who could read the soul of an object from the scratches on its surface. But the device that lay on the velvet cloth before him was silent. It was a pocket watch crafted from a metal that shimmered like captured starlight, its face a complex astrolabe of unknown constellations. It had no hands to tell the time, only a single, keyhole-shaped aperture at its center.
 ```
 
-**`intention.md`** (your creative goal for the next chapter)
+**3\. `intention.md`**
+
+This file directs the AI for the next creative cycle. State your goal for the upcoming chapter.
 
 ```markdown
 Deepen the mystery of the watch. Introduce a character who is also interested in it, creating a sense of competition or threat. The atmosphere should be tense and filled with suspicion.
 ```
 
-### 4\. Running the Engine
+### 5\. Run the Engine
 
-With your local Redis server running, launch the tool:
+With your Redis server running, you're ready to start. From inside your project folder, run the command:
 
 ```bash
 qp
 ```
 
-The first cycle will begin. You can monitor the story's evolution by checking the files in the `story_progress/` directory. After a session finishes, simply update `intention.md` with your new goals and run the tool again to continue.
+The engine will start its first cycle. A new `story_progress/` directory will be created to store the generated chapters. To continue the story, simply update `intention.md` with your new goal and run `qp` again.
 
-## Project File Structure
+## Your Writing Project Structure
+
+After running the engine, your project folder will look like this:
 
 ```
-quantum-pen/
-├── quantum_pen/
-│   ├── __init__.py
-│   └── main.py         # Main application script
-├── pyproject.toml      # Package definition
-├── starter.md          # [You create] The story's starting point
-├── intention.md        # [You create] The author's intent for each cycle
-├── .env                # [You create] For environment variables (API Key)
+my-awesome-story/
+├── .env                # Your API key
+├── starter.md          # The story's starting point
+├── intention.md        # Your creative goal for the next cycle
 └── story_progress/     # (Auto-generated) Stores the output of each cycle
+    ├── cycle_01_cand_01.md
+    ├── cycle_01_cand_02.md
+    └── ...
 ```
 
 ## Customization
