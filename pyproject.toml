@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "quantum-pen"
 version = "0.1.0"
 description = "Stories are not written, but discovered."
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "openai>=1.106.1",
