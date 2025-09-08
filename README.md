@@ -49,17 +49,7 @@ The system operates in iterative "cycles." Here’s a breakdown of a single cycl
 ### 2\. Installation & Setup
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/mountain/quantum-pen.git
-cd quantum-pen
-
-# 2. Create and activate a virtual environment (recommended)
-python3 -m venv venv
-source venv/bin/activate  # macOS/Linux
-# venv\Scripts\activate  # Windows
-
-# 3. Install dependencies
-pip install .
+pip install quantum-pen
 ```
 
 ### 3\. Required Files
