@@ -59,20 +59,12 @@ source venv/bin/activate  # macOS/Linux
 # venv\Scripts\activate  # Windows
 
 # 3. Install dependencies
-pip install -r requirements.txt
+pip install .
 ```
 
 ### 3\. Required Files
 
 Before running the script, create the following files in the project's root directory:
-
-**`requirements.txt`**
-
-```
-openai
-redis
-python-dotenv
-```
 
 **`.env`** (for your API key)
 
@@ -96,23 +88,25 @@ Deepen the mystery of the watch. Introduce a character who is also interested in
 
 ### 4\. Running the Engine
 
-With your local Redis server running, launch the script:
+With your local Redis server running, launch the tool:
 
 ```bash
-python quantum_pen.py
+qp
 ```
 
-The first cycle will begin. You can monitor the story's evolution by checking the files in the `story_progress/` directory. After a session finishes, simply update `intention.md` with your new goals and run the script again to continue.
+The first cycle will begin. You can monitor the story's evolution by checking the files in the `story_progress/` directory. After a session finishes, simply update `intention.md` with your new goals and run the tool again to continue.
 
 ## Project File Structure
 
 ```
 quantum-pen/
-├── quantum_pen.py      # Main application script
+├── quantum_pen/
+│   ├── __init__.py
+│   └── main.py         # Main application script
+├── pyproject.toml      # Package definition
 ├── starter.md          # [You create] The story's starting point
 ├── intention.md        # [You create] The author's intent for each cycle
 ├── .env                # [You create] For environment variables (API Key)
-├── requirements.txt    # [You create] Python dependencies
 └── story_progress/     # (Auto-generated) Stores the output of each cycle
 ```
 
