@@ -21,28 +21,28 @@ SITE_NAME = "Quantum Pen Project"
 # Model Selection for each role
 # Note: Provided model names were futuristic. Replaced with current top-tier available models.
 # You can update these when new models are released.
-DIRECTOR_MODEL = "openai/gpt-4o"
-WRITER_MODEL = "google/gemini-2.5-pro"
-EVALUATOR_MODEL = "google/gemini-2.5-pro"
+DIRECTOR_MODEL = os.getenv("DIRECTOR_MODEL", "openai/gpt-4o")
+WRITER_MODEL = os.getenv("WRITER_MODEL", "google/gemini-2.5-pro")
+EVALUATOR_MODEL = os.getenv("EVALUATOR_MODEL", "google/gemini-2.5-pro")
 
 # System Parameters
-TEXT_POOL_SIZE = 3
-DIRECTOR_BRANCH_FACTOR = 3  # 3 -> 9
-WRITER_BRANCH_FACTOR = 3  # 9 -> 27
+TEXT_POOL_SIZE = int(os.getenv("TEXT_POOL_SIZE", 3))
+DIRECTOR_BRANCH_FACTOR = int(os.getenv("DIRECTOR_BRANCH_FACTOR", 3))  # 3 -> 9
+WRITER_BRANCH_FACTOR = int(os.getenv("WRITER_BRANCH_FACTOR", 3))  # 9 -> 27
 EVALUATION_DIMENSIONS = [
     "PlotAdvancement", "CharacterDevelopment", "TensionAndPacing",
     "ProseAndStyle", "Coherence"
 ]
 
 # Redis Configuration
-REDIS_HOST = 'localhost'
-REDIS_PORT = 6379
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 # File Storage
-OUTPUT_DIR = "story_progress"
-STARTER_FILE = "starter.md"  # Initial story file
-INTENT_FILE = "intention.md"    # Author's intent file
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", "story_progress")
+STARTER_FILE = os.getenv("STARTER_FILE", "starter.md")  # Initial story file
+INTENT_FILE = os.getenv("INTENT_FILE", "intention.md")    # Author's intent file
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # --- 2. CORE PROMPTS ---
