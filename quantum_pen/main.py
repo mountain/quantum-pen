@@ -331,39 +331,12 @@ def main():
         print(f"Please ensure Redis is running on redis://{REDIS_HOST}:{REDIS_PORT}")
         return
 
-    # --- Initial Setup (Cycle 0) ---
+    # --- Initial Setup ---
+    # We now only ensure 'current_cycle' exists. File setup is in the loop.
     if not r.exists('current_cycle'):
         print("No previous state found in Redis. Initializing system.")
-
-        if not os.path.exists(STARTER_FILE):
-            print(f"\n[FATAL ERROR] Starter file '{STARTER_FILE}' not found.")
-            print("Please create this file in the same directory and add your initial story text to it.")
-            return
-
-        with open(STARTER_FILE, 'r', encoding='utf-8') as f:
-            starter_text = f.read().strip()
-
-        if not starter_text:
-            print(f"\n[FATAL ERROR] Starter file '{STARTER_FILE}' is empty.")
-            print("Please add your initial story text to the file.")
-            return
-
-        print(f"Successfully loaded initial story from '{STARTER_FILE}'.")
         r.set('current_cycle', 0)
-
-        initial_text = {
-            'id': 'cycle_0_pool_0',
-            'full_text': starter_text,
-        }
-        initial_pool = [initial_text.copy() for _ in range(TEXT_POOL_SIZE)]
-        for i, item in enumerate(initial_pool):
-            item['id'] = f'cycle_0_pool_{i}'
-
-        # We still save the initial text to Redis for the very first cycle to read from.
-        # Alternatively, the loop could have a special case for cycle 0, but this is simpler.
-        r.set('text_pool_metadata', json.dumps(initial_pool))  # Store metadata, not full text if large
-        save_text_pool(0, initial_pool)
-        print("System initialized successfully. Ready to start cycles.")
+        print("System initialized. Ready to start cycles.")
 
     # --- Main Loop ---
     NUM_CYCLES_TO_RUN = 3
@@ -375,26 +348,55 @@ def main():
 
         print(f"\n\n>>>>>>>>>> STARTING CYCLE {cycle_num} <<<<<<<<<<")
 
-        # --- [MODIFIED] Load text pool directly from files ---
-        print(f"Loading text pool from files of cycle {last_completed_cycle}...")
+        # --- Load all inputs for the cycle ---
         text_pool = []
-        for pool_index in range(TEXT_POOL_SIZE):
-            filename = os.path.join(OUTPUT_DIR, f"cycle_{last_completed_cycle:02d}_pool_{pool_index}.md")
-            if not os.path.exists(filename):
-                print(f"\n[FATAL ERROR] Cannot find required file for next cycle: {filename}")
-                print("Aborting.")
+        if last_completed_cycle == 0:
+            # For the very first cycle, we load from the starter file.
+            # This ensures any user edits to starter.md before starting are captured.
+            print(f"Loading initial text from '{STARTER_FILE}' for Cycle 1.")
+            if not os.path.exists(STARTER_FILE):
+                print(f"\n[FATAL ERROR] Starter file '{STARTER_FILE}' not found.")
+                print("Please create this file and add your initial story text to it.")
                 return
 
-            with open(filename, 'r', encoding='utf-8') as f:
-                content = f.read()
+            with open(STARTER_FILE, 'r', encoding='utf-8') as f:
+                starter_text = f.read().strip()
 
-            pool_item = {
-                'id': f'cycle_{last_completed_cycle}_pool_{pool_index}',
-                'full_text': content
+            if not starter_text:
+                print(f"\n[FATAL ERROR] Starter file '{STARTER_FILE}' is empty.")
+                print("Please add your initial story text to the file.")
+                return
+
+            print("Successfully loaded initial story.")
+            initial_text = {
+                'id': 'cycle_0_pool_0',
+                'full_text': starter_text,
             }
-            text_pool.append(pool_item)
-        print("Text pool loaded successfully from files.")
-        # --- End of modification ---
+            text_pool = [initial_text.copy() for _ in range(TEXT_POOL_SIZE)]
+            for j, item in enumerate(text_pool):
+                item['id'] = f'cycle_0_pool_{j}'
+
+            # Save this initial pool to cycle_00 files for transparency
+            save_text_pool(0, text_pool)
+        else:
+            # For subsequent cycles, load from the previous cycle's output files.
+            print(f"Loading text pool from files of cycle {last_completed_cycle}...")
+            for pool_index in range(TEXT_POOL_SIZE):
+                filename = os.path.join(OUTPUT_DIR, f"cycle_{last_completed_cycle:02d}_pool_{pool_index}.md")
+                if not os.path.exists(filename):
+                    print(f"\n[FATAL ERROR] Cannot find required file for next cycle: {filename}")
+                    print("Aborting.")
+                    return
+
+                with open(filename, 'r', encoding='utf-8') as f:
+                    content = f.read()
+
+                pool_item = {
+                    'id': f'cycle_{last_completed_cycle}_pool_{pool_index}',
+                    'full_text': content
+                }
+                text_pool.append(pool_item)
+            print("Text pool loaded successfully from files.")
 
         # Author provides their intent for this cycle
         if os.path.exists(INTENT_FILE):
