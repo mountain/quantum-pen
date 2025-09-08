@@ -16,3 +16,6 @@ dependencies = [
 
 [project.scripts]
 qp = "quantum_pen.main:main"
+
+[tool.setuptools]
+packages = ["quantum_pen"]

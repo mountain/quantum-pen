@@ -1,8 +1,9 @@
 import os
 import json
+import re
 import redis
 from openai import OpenAI
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
 # Load environment variables from .env file if present
@@ -194,6 +195,28 @@ def save_text_pool(cycle: int, text_pool: List[Dict[str, Any]]):
 # --- 4. CORE LOGIC PHASES ---
 # ============================
 # (Core logic functions remain unchanged)
+
+def get_latest_cycle_from_story_progress() -> Optional[int]:
+    """
+    Scans the OUTPUT_DIR for story files and determines the latest cycle number.
+    Filenames are expected in the format 'cycle_XX_...'.
+    """
+    if not os.path.exists(OUTPUT_DIR):
+        return None
+
+    latest_cycle = -1
+    # Regex to find 'cycle_XX' and capture the number XX.
+    cycle_regex = re.compile(r"cycle_(\d+)_")
+
+    for filename in os.listdir(OUTPUT_DIR):
+        match = cycle_regex.match(filename)
+        if match:
+            cycle_num = int(match.group(1))
+            if cycle_num > latest_cycle:
+                latest_cycle = cycle_num
+
+    return latest_cycle if latest_cycle != -1 else None
+
 
 def run_director_phase(cycle_num: int, text_pool: List[Dict[str, Any]], author_intent: str) -> List[Dict[str, Any]]:
     print("\n--- Running Director Phase ---")
@@ -399,10 +422,16 @@ def main():
         return
 
     # --- Redis State Initialization ---
-    if not r.exists('current_cycle'):
-        print("No previous state found in Redis. Initializing system.")
+    # Sync with the latest cycle from the story_progress folder
+    latest_cycle_from_files = get_latest_cycle_from_story_progress()
+    if latest_cycle_from_files is not None:
+        print(f"Found latest cycle {latest_cycle_from_files} in '{OUTPUT_DIR}'. Syncing Redis.")
+        r.set('current_cycle', latest_cycle_from_files)
+    elif not r.exists('current_cycle'):
+        print("No story progress found and no state in Redis. Initializing to cycle 0.")
         r.set('current_cycle', 0)
-        print("System initialized. Ready to start cycles.")
+    else:
+        print("Using existing state from Redis.")
 
     # Determine the current and next cycle numbers
     last_completed_cycle = int(r.get('current_cycle'))
