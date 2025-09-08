@@ -17,6 +17,8 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # For attribution on OpenRouter
 HTTP_REFERER = "https://github.com/mountain/quantum-pen"
 SITE_NAME = "Quantum Pen Project"
+OPENAI_TIMEOUT = int(os.getenv("OPENAI_TIMEOUT", 10))
+
 
 # Model Selection for each role
 # Note: Provided model names were futuristic. Replaced with current top-tier available models.
@@ -157,6 +159,7 @@ client = OpenAI(
         "HTTP-Referer": HTTP_REFERER,
         "X-Title": SITE_NAME,
     },
+    timeout=OPENAI_TIMEOUT,
 )
 
 
